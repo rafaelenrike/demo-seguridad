@@ -44,9 +44,16 @@ jobs:
           output_file_path: console,results.sarif
       - name: Publicar resultados en GitHub Security
         if: always()
+        continue-on-error: true          # si code scanning no está disponible, no falla el job
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: results.sarif
+      - name: Guardar reporte SARIF como artefacto
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkov-sarif
+          path: results.sarif
 
   plan:
     name: Terraform plan (OIDC)
