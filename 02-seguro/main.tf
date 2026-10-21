@@ -293,7 +293,7 @@ resource "azurerm_storage_account" "st" {
   tags                     = var.tags
 
   https_traffic_only_enabled        = true     # [OK]
-  min_tls_version                   = "TLS1_2" # [OK]
+  min_tls_version                   = "TLS1_1" # [OK]
   allow_nested_items_to_be_public   = false    # [OK] nada anónimo
   infrastructure_encryption_enabled = true     # [OK] doble cifrado en reposo
   shared_access_key_enabled         = false    # [OK] solo identidades de Entra ID, no llaves
