@@ -1,0 +1,24 @@
+#cloud-config
+# No contiene secretos: solo el nombre del Key Vault y del secreto.
+write_files:
+  - path: /usr/local/bin/leer-secreto.sh
+    permissions: "0755"
+    content: |
+      #!/bin/bash
+      # 1) Pide un token a la identidad administrada (IMDS, solo accesible desde la VM)
+      TOKEN=$(curl -s -H "Metadata: true" \
+        "http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https%3A%2F%2Fvault.azure.net" \
+        | python3 -c 'import sys,json; print(json.load(sys.stdin)["access_token"])')
+      echo "Token obtenido de la identidad administrada (longitud: $(echo -n $TOKEN | wc -c))"
+      # 2) Usa el token para leer el secreto desde Key Vault
+      curl -s -H "Authorization: Bearer $TOKEN" \
+        "https://${key_vault_name}.vault.azure.net/secrets/${secret_name}?api-version=7.4" \
+        | python3 -c '
+      import sys, json
+      d = json.load(sys.stdin)
+      v = d.get("value")
+      if v:
+          print("Secreto leido OK desde Key Vault. Longitud:", len(v), "| inicio:", v[:3] + "*" * 8)
+      else:
+          print("ERROR:", json.dumps(d, indent=2))
+      '

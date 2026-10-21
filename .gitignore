@@ -1,0 +1,9 @@
+# Nunca versionar estado, planes ni variables locales
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan
+.terraform/
+terraform.tfvars
+*.auto.tfvars
+crash.log

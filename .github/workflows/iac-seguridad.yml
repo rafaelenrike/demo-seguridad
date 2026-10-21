@@ -1,0 +1,90 @@
+# Pipeline "shift-left" de seguridad para IaC
+#  1) Escaneo estático (Checkov) -> bloquea si hay hallazgos en 02-seguro
+#  2) Escaneo informativo de 01-inseguro (no bloquea, solo para la clase)
+#  3) terraform plan autenticando con OIDC (SIN secretos de larga duración)
+name: IaC Security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scan-inseguro:
+    name: Checkov (01-inseguro, informativo)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: 01-inseguro
+          framework: terraform
+          soft_fail: true          # no bloquea: es el ejemplo "malo"
+          quiet: true
+
+  scan-seguro:
+    name: Checkov (02-seguro, bloqueante)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write       # para publicar SARIF en la pestaña Security
+    steps:
+      - uses: actions/checkout@v4
+      - uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: 02-seguro
+          framework: terraform
+          soft_fail: false         # si hay hallazgos, el pipeline falla
+          output_format: cli,sarif
+          output_file_path: console,results.sarif
+      - name: Publicar resultados en GitHub Security
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: results.sarif
+
+  plan:
+    name: Terraform plan (OIDC)
+    needs: scan-seguro             # sin escaneo limpio no hay plan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write              # necesario para federación OIDC
+    env:
+      ARM_USE_OIDC: "true"
+      ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+    defaults:
+      run:
+        working-directory: 02-seguro
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure login (OIDC, sin client_secret)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - uses: hashicorp/setup-terraform@v3
+
+      - name: Llave SSH efímera para el plan
+        run: ssh-keygen -t rsa -b 4096 -N "" -f "$HOME/.ssh/id_rsa" -q
+
+      - name: fmt / init / validate
+        run: |
+          terraform fmt -check -recursive
+          terraform init -input=false
+          terraform validate
+
+      - name: plan
+        run: |
+          terraform plan -input=false \
+            -var "my_ip=$(curl -s https://api.ipify.org)" \
+            -out tfplan
